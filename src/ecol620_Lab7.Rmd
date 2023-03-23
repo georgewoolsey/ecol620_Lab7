@@ -42,6 +42,7 @@ library(latex2exp)
 library(kableExtra)
 library(cowplot)
 library(RColorBrewer)
+library(ggnewscale) # add second scale color/fill
 # spatial analysis
 library(terra)
 library(adehabitatLT)     #for trajectory information; version 0.3.23 used
@@ -289,6 +290,87 @@ gc()
 Plot the minimum convex polygon for all panthers overlaid on the reclassified landcover raster. Show the 50% and 95% minimum convex polygons. See the example on Canvas for reference. (6 pts)
 
 ```{r}
+# create df of landcover reclass raster
+land_sub_df <- land_sub |> 
+  as.data.frame(xy=T) |> 
+  dplyr::rename(landcover_type=3) |> 
+  dplyr::left_join(
+    landcover_reclass |> 
+      dplyr::count(changeto,description2) 
+    , by = c("landcover_type"="changeto")
+  ) |> 
+  dplyr::mutate(
+    landcover_class = as.factor(description2)
+  )
+# filter for only some pcts
+pct_list_temp <- c("50%","95%")
+set.seed(11)
+#plot
+ggplot() +
+  geom_raster(
+    data = land_sub_df
+    , mapping = aes(x=x,y=y,fill=landcover_class)
+  ) +
+  scale_fill_viridis_d(option = "turbo", alpha = 0.8) +
+  labs(fill = "Landcover Class") +
+  # start a new scale fill for points
+  ggnewscale::new_scale_fill() +
+  geom_sf(
+    data = panthers
+    , mapping = aes(fill = CatID)
+    , color = "black"
+    , shape = 21
+    , show.legend = F
+    , size = 1
+  ) +
+  scale_fill_viridis_d(option = "magma") +
+  # plot min_convex_polys
+  geom_sf(
+    data = min_convex_polys |> dplyr::filter(pct_grp %in% pct_list_temp)
+    , mapping = aes(color = pct_grp)
+    , fill = "gray"
+    , alpha = 0.2
+    , lwd = 1
+  ) +
+  scale_color_manual(
+    values = RColorBrewer::brewer.pal(n = length(pct_list_temp)*2, name = "Greys") |> tail(length(pct_list_temp))
+  ) +
+  # labels
+  ggrepel::geom_text_repel(
+    data = 
+      min_convex_polys |> 
+        dplyr::filter(pct_grp == "95%") |> 
+        sf::st_centroid() |> 
+        dplyr::mutate(id=paste0("#",id))
+    , aes(label=id, geometry = geometry)
+    , stat = "sf_coordinates"
+    , size = 3.5
+    , color = "black"
+    , fontface = "bold.italic"
+    , seed = 11
+    , nudge_x = 100
+  ) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  labs(
+    subtitle = paste0("Radiotelemetry locations and minimum convex polygons for panthers")
+    , x = "Longitude"
+    , y = "Latitude"
+    , color = "Minimum convex polygons\nHome Range %"
+  ) +
+  theme_light() +
+  theme(
+    legend.position = c(0.12, 0.2)
+    , legend.key.size = unit(0.25, 'cm')
+    , legend.text = element_text(size = 7)
+    , legend.title = element_text(size = 7)
+    , axis.title = element_text(size = 7)
+    , axis.text.y = element_text(size=6)
+    , axis.text.x = element_text(size=6)
+    , panel.border = element_blank()
+    , plot.subtitle = element_text(size=9)
+    , panel.grid = element_blank()
+  )
 
 ```
 
