@@ -1,0 +1,342 @@
+---
+title: "Lab 7 - Space Use and Resource Selection"
+subtitle: "ECOL 620 - Applications in Landscape Ecology"
+author: "George Woolsey"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    # code_folding: hide
+editor_options: 
+  chunk_output_type: console
+knit: (function(inputFile, encoding){ 
+    out_dir <- '../';
+    rmarkdown::render(inputFile, encoding = encoding, output_file=file.path(dirname(inputFile), out_dir, 'index.html'));
+    file.copy(from = "..//index.html", to = '..///data//lab7_george_woolsey.html', overwrite = TRUE)
+  })
+---
+
+# Setup
+
+```{r, include=FALSE, warning=F, message=F}
+# knit options
+knitr::opts_chunk$set(
+  echo = TRUE
+  , warning = FALSE
+  , message = FALSE
+  # , results='hide'
+  , fig.width = 10
+  , fig.height = 7
+)
+```
+
+```{r}
+# bread-and-butter
+library(tidyverse)
+library(lubridate)
+library(viridis)
+library(scales)
+library(latex2exp)
+# visualization
+library(kableExtra)
+library(cowplot)
+library(RColorBrewer)
+# spatial analysis
+library(terra)
+library(adehabitatLT)     #for trajectory information; version 0.3.23 used
+library(adehabitatHR)     #Home range estimation; version 0.4.15 used
+library(adehabitatHS)     #for selection ratios; version 0.3.13 used
+# do i have to???
+# library(raster)           #for raster covariate data; version 2.6-7 used
+# library(rgdal)            #for reading different types of GIS files; version 1.3-4 used
+# set seed
+set.seed(11)
+```
+
+# Rules
+
+1. Using the provided R Markdown template, answer all questions and show your R code where necessary. Note, some questions are just plain text written answers.
+
+2. Complete your assignment using the R markdown file and submit individual assignments to Canvas. Knit your script and submit an .html file on Canvas. Please use  the following naming convention: lab5_firstname_lastname.html (ex. lab7_kyle_horton.html).  Note, we will not grade labs in any other format.
+
+---
+
+# Florida panther home range
+
+```{r, include=FALSE, eval=FALSE}
+...notes...
+
+local convex hull map might be difficult...check for shapefile uploaded to canvas
+  is the issue with the holes in the polygons? can use st_make_valid?
+
+resource selection has various levels...focus on type 2 and type 3...trying to figure out where the individuals are, are they selecting preferentially basee on what's available?
+
+type 2 is at broad landscape scale, type 3 narrows down to home range
+```
+
+
+## Load Data
+
+```{r, results='hide', fig.show='hide'}
+# landcover source: fwc/fnai
+land <- terra::rast("../data/panther_landcover.tif")
+reproject_crs <- terra::crs(land)
+terra::freq(land)
+# Add panther data
+panthers <- sf::st_read("../data/panthers.shp") |> 
+  sf::st_transform(reproject_crs) |> 
+  dplyr::select(-c(X,Y)) |> 
+  dplyr::mutate(CatID = as.factor(CatID))
+#inspect
+str(panthers)
+# counts
+panthers |> 
+  sf::st_drop_geometry() |> 
+  dplyr::count(CatID)
+panthers |> 
+  sf::st_drop_geometry() |> 
+  dplyr::count(AgeClass)
+panthers |> 
+  sf::st_drop_geometry() |> 
+  dplyr::count(CatID,AgeClass)
+# plot
+ggplot() + 
+  geom_raster(
+    data = land |> as.data.frame(xy=T) |> dplyr::rename(covertyp=3)
+    , mapping = aes(x=x,y=y,fill=covertyp)
+  ) +
+  geom_sf(data = panthers, mapping = aes(color = CatID)) +
+  scale_fill_viridis_c(alpha = 0.8) +
+  scale_color_viridis_d(option = "magma") +
+  theme_light()
+```
+
+Reclassify the land cover data based on classification matrix
+
+```{r, results='hide', fig.show='hide'}
+# reclass
+# load reclassification to resistance surface
+landcover_reclass <- read.table("../data/landcover reclass.txt", header = T) |>  
+  dplyr::rename_with(tolower)
+landcover_reclass |>  dplyr::glimpse()
+# create landcover surface raster
+rcl_matrix <- landcover_reclass |>  dplyr::select(landcover, changeto) |>  as.matrix()
+land_sub <- terra::classify(land, rcl = rcl_matrix)
+# investigate
+land |>  terra::unique() |>  nrow()
+land_sub |>  terra::unique() |>  nrow()
+plot(land_sub)
+
+#create forested wetlands layer
+wetforest <- land_sub
+terra::values(wetforest) <- 0
+wetforest[land_sub %in% c(9,11)] <- 1
+plot(wetforest)
+#create forested uplands layer
+dryforest <- land_sub
+terra::values(dryforest) <- 0
+dryforest[land_sub %in% c(10,12)] <- 1
+plot(dryforest)
+# create moving window calculation of different forest types
+fw <- terra::focalMat(land_sub, d = 5000, type = "circle")
+dry.focal <- terra::focal(dryforest, w = fw, fun = "sum", na.rm=T)
+wet.focal <- terra::focal(wetforest, w = fw, fun = "sum", na.rm=T)
+plot(dry.focal)
+plot(wet.focal)
+```
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE, include=FALSE}
+remove(list = ls()[grep("_temp",ls())])
+gc()
+```
+
+## Question 1
+
+Within the "panthers" SpatialPointsDataFrame, there are three columns of information. Describe what each represents. (3 pts)
+
+<span style="color: teal;">
+The "panthers.shp" data includes radiotelemetry data from Florida panthers (*Puma concolor coryi*) in south Florida with the columns **`r paste0(names(panthers |> sf::st_drop_geometry()), collapse = ", ")`**. Data come from six panthers identified by the column `CatID`, three subadults and three adults denoted in the data column `AgeClass`, that were tracked during 2006 with dates identified by the column `Juldate`.
+</span>
+
+## Question 2
+
+Describe what lines 102-104 are achieving. What is "fw" and how is it used in the "focal" function? (4 pts)
+
+```{r, eval=FALSE, include=TRUE}
+fw <- raster::focalWeight(land_sub, 5000, 'circle')
+dry.focal <- raster::focal(dryforest, w=fw, fun="sum", na.rm=T)
+wet.focal <- raster::focal(wetforest, w=fw, fun="sum", na.rm=T)
+```
+
+<span style="color: teal;">
+The `raster::focalWeight` function calculates a "moving window" weight matrix in which the values add up to one, named `fw`, in a 5 km radius (5,000 m) for use in the `raster::focal` function. The `raster::focal` function calculates the focal ("moving window") values for the neighborhood of focal cells using a matrix of weights and sums the weighted amount of each forest type within the 5 km radius.
+</span>
+
+## Question 3
+
+Plot the minimum convex polygon for panther #137. Show the raw locations (points) and the 50%, 75%, and 95% minimum convex polygons. See the example on Canvas for reference.  (5 pts)
+
+```{r}
+# take panthers and select the column of the data frame that 
+  # includes the animal identification number (CatID) to 
+  # calculate Minimum Convex Polygons with the mcp function
+# :'( :'( :'(  :'( :'( :'(  :'( :'( :'(  :'( :'( :'( 
+# have to convert from sf to sp object to use mcp
+sp_panthers_temp <- sf::as_Spatial(panthers)
+# function to pass to mcp
+my_mcp_fn <- function(pct) {
+  adehabitatHR::mcp(
+    sp_panthers_temp[,"CatID"]
+    , percent = pct
+  ) |> 
+  sf::st_as_sf()
+}
+# pcts for minimum convex polys
+pct_list <- c(95,75,50)
+# create sf object with all pcts in one for plotting
+min_convex_polys <- pct_list |> 
+  purrr::map(my_mcp_fn) |> 
+  dplyr::bind_rows(.id = "column_label") |> 
+  dplyr::mutate(
+    pct_grp = factor(
+      column_label
+      , labels = paste0(pct_list,"%")
+      , ordered = T
+    )
+  )
+```
+
+Plot for panther #137
+
+```{r}
+panther_filter_temp <- "137"
+# create df of landcover reclass raster
+land_sub_df_temp <- land_sub |> 
+  terra::crop(
+    panthers |> 
+      dplyr::filter(CatID == panther_filter_temp) |> 
+      sf::st_bbox() |> 
+      sf::st_as_sfc() |> 
+      sf::st_buffer(5000) |> 
+      terra::vect()
+  ) |> 
+  as.data.frame(xy=T) |> 
+  dplyr::rename(landcover_type=3) |> 
+  dplyr::left_join(
+    landcover_reclass |> 
+      dplyr::count(changeto,description2) 
+    , by = c("landcover_type"="changeto")
+  ) |> 
+  dplyr::mutate(
+    landcover_class = as.factor(description2)
+  )
+#plot
+ggplot() +
+  geom_raster(
+    data = land_sub_df_temp
+    , mapping = aes(x=x,y=y,fill=landcover_class)
+  ) +
+  geom_sf(
+    data = min_convex_polys |> dplyr::filter(id == panther_filter_temp)
+    , mapping = aes(color = pct_grp)
+    , fill = "gray"
+    , alpha = 0.1
+    , lwd = 2
+  ) +
+  geom_sf(
+    data = panthers |> dplyr::filter(CatID == panther_filter_temp)
+    , color = "black"
+    , fill = "gray85"
+    , shape = 21
+  ) +
+  scale_fill_viridis_d(option = "turbo", alpha = 0.8) +
+  scale_color_manual(
+    values = RColorBrewer::brewer.pal(n = length(pct_list)*2, name = "Greys") |> tail(length(pct_list))
+  ) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  labs(
+    subtitle = paste0("Radiotelemetry locations and minimum convex polygons for panther #", panther_filter_temp)
+    , x = "Longitude"
+    , y = "Latitude"
+    , fill = "Landcover Class"
+    , color = "Minimum convex polygons\nHome Range %"
+  ) +
+  theme_light() +
+  theme(
+    legend.position = c(0.12, 0.2)
+    , legend.key.size = unit(0.25, 'cm')
+    , legend.text = element_text(size = 7)
+    , legend.title = element_text(size = 7)
+    , axis.title = element_text(size = 7)
+    , axis.text.y = element_text(size=6)
+    , axis.text.x = element_text(size=6)
+    , panel.border = element_blank()
+    , plot.subtitle = element_text(size=9)
+    , panel.grid = element_blank()
+  )
+
+```
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE, include=FALSE}
+remove(list = ls()[grep("_temp",ls())])
+gc()
+```
+
+## Question 4
+
+Plot the minimum convex polygon for all panthers overlaid on the reclassified landcover raster. Show the 50% and 95% minimum convex polygons. See the example on Canvas for reference. (6 pts)
+
+```{r}
+
+```
+
+## Question 5
+
+For all panthers, create a four-panel plot showing the home ranges as estimated by: minimum convex polygon, fixed bivariate kernel home range, local convex hull home range, and Brownian bridge. For each approach, plot the 95% contours. Hint, for the local convex hull home range, I used the "LoCoH.k" function with a k of 14. (12 pts). 
+
+```{r}
+
+```
+
+## Question 6
+
+If you were tasked with presenting the home range of these animals to the Florida Fish and Wildlife Commission, which would you select and why? (2 pts)
+
+```{r}
+
+```
+
+# Florida panther resource selection 
+
+## Question 7
+
+Within the Fletcher text, there is a distinction made between Design II and Design III resource selection sampling. What is the difference? (4 pts)
+
+## Question 8
+
+Lines 343 reformats the "use" dataframe. What specially does it do? (2 pts)
+
+`useCatID <- dcast(use, CatID~landcover, length, value.var="CatID")`
+
+## Question 9
+
+Calculate the Design II and Design III resource selection models. (12 pts)
+
+```{r}
+
+```
+
+### part a)
+For Design II, are all panthers using the habitats identically? Hint, explore the output of the "widesII".
+
+### part b)
+For Design II, which habitats are showing a positive selection? Do any habitats show a significant positive association?
+
+### part c)
+For Design III, which habitats are showing a positive selection? Do you see negative associations? 
+
+### part d)
+What differences do you see comparing the Design II and Design III global results for habitat selection? 
+

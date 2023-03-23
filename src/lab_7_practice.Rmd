@@ -1,0 +1,477 @@
+---
+title: "Lab 7 - Space Use and Resource Selection"
+author: "ECOL 620 - Applications in Landscape Ecology"
+date: "Spring 2023"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+In this lab, we explore a number of common algorithms for estimating animal home ranges and resource selection. We will use GPS tracking data from Florida panthers to motivate these analyses.
+
+Read “Fletcher_Chapter8.pdf” and open “lab8_practice.Rmd” in R. Complete your assignment using the R markdown file and submit individual assignments to Canvas. Knit your script and submit an .html file on Canvas. Please use  the following naming convention: lab7_firstname_lastname.html (ex. lab7_kyle_horton.html).  Note, we will not grade labs in any other format.
+
+
+
+```{r}
+library(raster)           #for raster covariate data; version 2.6-7 used
+library(reshape2)         #for re-formatting data; version 1.4.3 used
+library(rgdal)            #for reading different types of GIS files; version 1.3-4 used
+library(adehabitatLT)     #for trajectory information; version 0.3.23 used
+library(adehabitatHR)     #Home range estimation; version 0.4.15 used
+library(adehabitatHS)     #for selection ratios; version 0.3.13 used
+library(tidyverse)
+```
+
+
+```{r}
+#set working directory where data were downloaded
+setwd("/Users/kylehorton/Desktop/ECOL_620/Course_materials/Week10/Lab7/data_for_lab7")
+```
+
+
+```{r}
+###################################################
+#8.3.2 Prepping the data
+###################################################
+#label projection for later use
+crs.land <- "+proj=aea +lat_0=24 +lon_0=-84 +lat_1=24 +lat_2=31.5 +x_0=400000 +y_0=0 +ellps=GRS80 +datum=WGS84 +units=m +no_defs"
+```
+
+
+```{r}
+#landcover source: fwc/fnai
+land <- raster("/Users/kylehorton/Desktop/ECOL_620/Course_materials/Week10/Lab7/data_for_lab7/panther_landcover.tif")
+plot(land)
+```
+
+
+
+```{r}
+#Add panther data
+panthers = readOGR("/Users/kylehorton/Desktop/ECOL_620/Course_materials/Week10/Lab7/data_for_lab7/panthers.shp")
+panthers = spTransform(panthers, crs.land)
+#the x and y variables are likely in a different CRS, so I have removed them to avoid confusion
+panthers=panthers[,3:5]
+
+#inspect
+summary(panthers)
+unique(panthers$CatID) #the unique cat IDs
+head(panthers)
+```
+
+```{r}
+#plot
+plot(land)
+points(panthers, col=panthers$CatID)
+```
+
+```{r}
+unique(land)
+#load reclassification table for reclassifying map
+classification <- read.table("/Users/kylehorton/Desktop/ECOL_620/Course_materials/Week10/Lab7/data_for_lab7/landcover reclass.txt", header=TRUE)
+
+#inspect
+head(classification)
+classification$Description    #original classification
+classification$Description2   #re-class
+
+#format for reclassify function;
+class <- as.matrix(classification[,c(1,3)])
+land_sub <- reclassify(land,rcl=class)
+
+#plot
+plot(land_sub)
+
+#create forested wetlands layer
+wetforest <- land_sub
+values(wetforest) <- 0
+wetforest[land_sub==9 | land_sub==11] <- 1
+
+#create forested uplands layer
+dryforest <- land_sub
+values(dryforest) <- 0
+dryforest[land_sub==10 | land_sub==12] <- 1
+
+#5 km moving window to get neighborhood proportion
+fw <- raster::focalWeight(land_sub, 5000, 'circle')
+dry.focal <- focal(dryforest, w=fw, fun="sum", na.rm=T)
+wet.focal <- focal(wetforest, w=fw, fun="sum", na.rm=T)
+
+#merge into a single raster stack
+layers <- stack(land_sub, wet.focal, dry.focal)
+names(layers) <- c("landcover", "wetforest", "dryforest")
+
+#plot
+plot(layers)
+
+```
+
+
+
+# Home range analysis
+
+## mcp home range
+```{r}
+#------------------#
+#mcp home range
+#------------------#
+
+mcp95 <- mcp(panthers[,"CatID"], percent = 95)
+mcp50 <- mcp(panthers[,"CatID"], percent = 50)
+
+#inspect
+class(mcp95)
+head(mcp95@polygons)
+
+#plot
+plot(land_sub)
+plot(panthers, add=TRUE, col=panthers$CatID)
+plot(mcp95, add=TRUE)
+plot(mcp50, add=TRUE, col="orange")
+
+```
+
+
+
+## fixed bivariate kernel home range
+```{r}
+#kernel types:
+kernel.href.bivar <- kernelUD(panthers[,"CatID"], h="href", kern="bivnorm")
+kernel.href.epa <- kernelUD(panthers[,"CatID"], h="href", kern="epa")
+
+#plot
+image(kernel.href.bivar)
+image(kernel.href.epa)
+
+#alternative plot for first cat
+plot(kernel.href.bivar[[1]])
+plot(kernel.href.epa[[1]])
+```
+
+```{r}
+#UD data
+head(kernel.href.bivar[[1]]@data)
+
+#h value for bandwidth
+kernel.href.bivar[[2]]@h
+kernel.href.bivar[[2]]@h$h
+```
+
+```{r}
+#least-squares cross validation for h, this will yield a warning of convergence
+kernel.lscv.bivar <- kernelUD(panthers[,"CatID"], h="LSCV", kern="bivnorm")
+
+#manually adjust h
+kernel.bivar.h1000 <- kernelUD(panthers[,"CatID"], h=1000, kern="bivnorm")
+
+#plot first cat
+plot(kernel.bivar.h1000[[1]])
+plot(kernel.href.bivar[[1]])
+
+#contour maps of activity for fourth cat
+plot(kernel.href.bivar[[4]])
+contour.data <- as.image.SpatialGridDataFrame(kernel.href.bivar[[4]])
+contour(contour.data, nlevels=5, add=TRUE)
+```
+
+
+## local convex hull home range
+```{r}
+#subset
+panther147 <- panthers[panthers$CatID==147, ]
+panther100 <- panthers[panthers$CatID==100, ]
+
+#initialize
+k.int <- round(nrow(coordinates(panther147))^0.5,0)
+a.int <- round(max(dist(coordinates(panther147))),0)
+
+k.search <- seq(k.int, 10*k.int, by=5)
+a.search <- seq(a.int, 2*a.int, by=3000)
+
+#Parameter search for locoh-a
+LoCoH.a.range <- LoCoH.a.area(SpatialPoints(coordinates(panther147)), unout="km2", arange=a.search)
+
+#Parameter search for locoh-k
+LoCoH.k.range <- LoCoH.k.area(SpatialPoints(coordinates(panther147)), unout="km2", krange=k.search)
+```
+
+
+```{r}
+#plot
+plot(LoCoH.a.range)
+plot(LoCoH.k.range)
+```
+
+
+```{r}
+#inspect
+a.search[5]
+k.search[11]
+
+#re-fit model
+LoCoH.k.61 <- LoCoH.k(SpatialPoints(coordinates(panther147)), k=k.search[11])
+
+#plot
+plot(LoCoH.k.61)
+```
+
+
+```{r}
+#re-fit model
+LoCoH.a.100062 <- LoCoH.a(SpatialPoints(coordinates(panther147)), a=a.search[5])
+class(LoCoH.a.100062)
+#plot
+plot(LoCoH.a.100062)
+```
+
+
+
+## brownian bridge home range
+```{r}
+#Re-format Juldate information:
+#function for taking characters of a string from rightmost value
+substrRight <- function(x, n){
+  substr(x, nchar(x)-n+1, nchar(x))
+}
+
+#re-format
+panthers$Juldate <- as.character(panthers$Juldate)
+panther.date <- as.numeric(substrRight(panthers$Juldate, 3))
+panthers$Date <-as.Date(panther.date, origin=as.Date("2006-01-01"))
+
+#convert to POSIXct object
+panthers$Date <- as.POSIXct(panthers$Date,"%Y-%m-%d", tz = "EST")
+
+#convert to data frame
+panther.df <- as.data.frame(panthers)
+
+#make trajectory object
+panther.ltraj <- as.ltraj(xy=coordinates(panthers), date=panthers$Date, id=panthers$CatID, typeII=T)
+```
+
+```{r}
+#inspect
+head(panther.ltraj)
+head(panther.ltraj[[1]], 2)
+summary(panther.ltraj)
+
+#plot
+plot(panther.ltraj)
+```
+
+```{r}
+#telemetry error (average)
+sigma2 <- 450
+
+#estimate sigma1
+sigma1 <- liker(panther.ltraj, sig2 = sigma2, rangesig1 = c(2, 100))
+
+#inspect
+#sigma1
+```
+
+
+```{r}
+#brownian bridge for Cat 147
+bb.147 <- kernelbb(panther.ltraj[6], sig1 = 7.2, sig2 = sigma2, grid = 200)
+
+#all panthers
+sig1 <- c(sigma1[[1]]$sig1, sigma1[[2]]$sig1, sigma1[[3]]$sig1, sigma1[[4]]$sig1, sigma1[[5]]$sig1, sigma1[[6]]$sig1)
+bb.panther <- kernelbb(panther.ltraj, sig1 = sig1, sig2 = sigma2, grid = 200)
+```
+
+
+```{r}
+#plot
+plot(panther.ltraj[6])
+plot(bb.147)
+```
+
+
+# contrast estimates
+```{r}
+#home range area estimates
+kernel.95 <- getverticeshr(kernel.href.bivar, percent=95)
+bb.95 <- getverticeshr(bb.panther, percent=95)
+
+#contrast area
+mcp95$area
+kernel.95$area
+bb.95$area
+
+#plot
+par(mfrow=c(1,2))  #sets up the graph window to store two graphs
+plot(land_sub)
+plot(kernel.95, add=TRUE, col=kernel.95$id)
+
+plot(land_sub)
+plot(mcp95, add=TRUE, col=kernel.95$id)
+
+#write to shapefile if needed
+#writePolyShape(mcp95, "homerange")
+```
+
+########################################################
+
+
+# Resource Selection
+
+## Point selection functions
+```{r}
+#use data
+use <- raster::extract(layers, panthers)
+use <- data.frame(use)
+
+#inspect
+head(use)
+str(use)
+
+#add CatID
+use$CatID <- as.factor(panthers$CatID)
+
+#reformat
+useCatID <- dcast(use, CatID~landcover, length, value.var="CatID")
+
+#inspect
+useCatID
+
+#add land-cover names
+newclass.names <- unique(classification[,3:4])
+names(useCatID) <- c("CatID", as.character(newclass.names[1:13,2]))
+
+#inspect
+useCatID
+```
+
+
+## design II availability: population availability
+```{r}
+#get availability points
+set.seed(8)
+rand.II <- sampleRandom(layers, size=1000)
+rand.II <- data.frame(rand.II)
+
+#inspect
+head(rand.II)
+str(rand.II)
+
+rand.II.land <- as.factor(rand.II$landcover)
+
+#get counts of each landcover type
+avail.II <- tapply(rand.II.land, rand.II.land, length)
+
+#inspect
+avail.II
+```
+
+
+```{r}
+#add land-cover names
+names(avail.II) <- as.character(newclass.names[1:14,2])
+
+#inspect
+avail.II
+
+#remove exotics, which were not observed in use sample
+avail.II <- avail.II[c(-14)]
+```
+
+## design III availability: within home-range availability for each individual
+```{r}
+cat.unique <- unique(panthers$CatID)
+samples <- 200
+rand.III <- matrix(nrow=0, ncol=4)
+
+#loop for all individuals
+for(i in 1:length(cat.unique)){
+
+  id.i <- cat.unique[i]
+  cat.i <- panthers[panthers$CatID==id.i,]
+  mcp.i <- mcp(SpatialPoints(coordinates(cat.i)), percent = 99)
+  rand.i <- spsample(mcp.i, type="random", n=samples)
+  rand.i.sample <- raster::extract(layers, rand.i)
+
+  #make a matrix of CatID and rand samples
+  cat.i <- as.numeric(rep(cat.unique[i], length(rand.i)))
+  rand.cat.i <- cbind(cat.i, rand.i.sample)
+  rand.III <- rbind(rand.III, rand.cat.i)
+}
+```
+
+
+```{r}
+#inspect
+head(rand.III)
+class(rand.III)
+str(rand.III)
+```
+
+
+```{r}
+#reshape data
+rand.III <- data.frame(rand.III)
+rand.III$cat.i <- as.factor(rand.III$cat.i)
+avail.III <- dcast(rand.III, cat.i~landcover, length, value.var="cat.i")
+
+names(avail.III)[2:14] <- as.character(newclass.names[1:13,2])
+#inspect
+avail.III
+```
+
+## selection ratios
+
+### Design II:
+```{r}
+sel.ratioII <- widesII(u=useCatID[,c(2:ncol(useCatID))], a=as.vector(avail.II), avknown=FALSE, alpha = 0.05)
+
+#inspect
+sel.ratioII
+sel.ratioII$wi
+sel.ratioII$se.wi
+```
+
+
+```{r}
+#plot
+#opar <- par(mfrow = c(2,2))
+#plot(sel.ratioII, errbar = c("CI"))
+#par(opar)
+
+ggplot()+
+  geom_point(aes(y=sel.ratioII$wi, x=row.names(as.data.frame(sel.ratioII$wi))))+
+  theme_classic()+
+  geom_hline(yintercept = 1)+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  geom_errorbar(aes(ymin=sel.ratioII$ICwiupper,ymax=sel.ratioII$ICwilower, x=row.names(as.data.frame(sel.ratioII$wi)),width=0.2))+
+  labs(x="Covertype", y=  "Manly selectivity measure\n (used/available)")
+```
+
+
+### Design III:
+```{r}
+sel.ratioIII <- widesIII(u=useCatID[,c(2:ncol(useCatID))], a=avail.III[,2:14], avknown=FALSE, alpha = 0.05)
+
+#inspect
+sel.ratioIII
+sel.ratioIII$wi
+sel.ratioIII$se.wi
+sel.ratioIII$ICwiupper
+sel.ratioIII$ICwilower
+```
+
+
+```{r}
+ggplot()+
+  geom_point(aes(y=sel.ratioIII$wi, x=row.names(as.data.frame(sel.ratioIII$wi))))+
+  theme_classic()+
+  geom_hline(yintercept = 1)+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  geom_errorbar(aes(ymin=sel.ratioIII$ICwiupper,ymax=sel.ratioIII$ICwilower, x=row.names(as.data.frame(sel.ratioIII$wi)),width=0.2))+
+  labs(x="Covertype", y=  "Manly selectivity measure\n (used/available)")
+```
+

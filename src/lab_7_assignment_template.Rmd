@@ -1,0 +1,84 @@
+---
+title: "Lab 7 - Space Use and Resource Selection"
+subtitle: "ECOL 620 - Applications in Landscape Ecology"
+author: "First Last"
+date: "MM/DD/YYYY"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Rules
+1. Using the provided R Markdown template, answer all questions and show your R code where necessary. Note, some questions are just plain text written answers.
+
+2. Complete your assignment using the R markdown file and submit individual assignments to Canvas. Knit your script and submit an .html file on Canvas. Please use  the following naming convention: lab5_firstname_lastname.html (ex. lab7_kyle_horton.html).  Note, we will not grade labs in any other format.
+
+#################################################################################
+
+# Florida panther home range
+
+### Question 1
+Within the "panthers" SpatialPointsDataFrame, there are three columns of information. Describe what each represents. (3 pts)
+
+
+### Question 2
+Describe what lines 102-104 are achieving. What is "fw" and how is it used in the "focal" function? (4 pts)
+
+
+### Question 3
+Plot the minimum convex polygon for panther #137. Show the raw locations (points) and the 50%, 75%, and 95% minimum convex polygons. See the example on Canvas for reference.  (5 pts)
+
+```{r}
+
+```
+
+
+### Question 4
+Plot the minimum convex polygon for all panthers overlaid on the reclassified landcover raster. Show the 50% and 95% minimum convex polygons. See the example on Canvas for reference. (6 pts)
+
+```{r}
+
+```
+
+
+### Question 5
+For all panthers, create a four-panel plot showing the home ranges as estimated by: minimum convex polygon, fixed bivariate kernel home range, local convex hull home range, and Brownian bridge. For each approach, plot the 95% contours. Hint, for the local convex hull home range, I used the "LoCoH.k" function with a k of 14. (12 pts). 
+
+```{r}
+
+```
+
+
+### Question 6
+If you were tasked with presenting the home range of these animals to the Florida Fish and Wildlife Commission, which would you select and why? (2 pts)
+
+```{r}
+
+```
+
+
+# Florida panther resource selection 
+
+### Question 7
+Within the Fletcher text, there is a distinction made between Design II and Design III resource selection sampling. What is the difference? (4 pts)
+
+
+### Question 8
+Lines 343 reformats the "use" dataframe. What specially does it do? (2 pts)
+
+useCatID <- dcast(use, CatID~landcover, length, value.var="CatID")
+
+
+### Question 9
+Calculate the Design II and Design III resource selection models. (12 pts)
+
+```{r}
+
+```
+
+a.	For Design II, are all panthers using the habitats identically? Hint, explore the output of the "widesII".
+b.	For Design II, which habitats are showing a positive selection? Do any habitats show a significant positive association?
+c.	For Design III, which habitats are showing a positive selection? Do you see negative associations? 
+d.	What differences do you see comparing the Design II and Design III global results for habitat selection? 
