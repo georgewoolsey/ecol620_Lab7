@@ -378,7 +378,146 @@ ggplot() +
 
 For all panthers, create a four-panel plot showing the home ranges as estimated by: minimum convex polygon, fixed bivariate kernel home range, local convex hull home range, and Brownian bridge. For each approach, plot the 95% contours. Hint, for the local convex hull home range, I used the "LoCoH.k" function with a k of 14. (12 pts). 
 
+### minimum convex polygon
+
 ```{r}
+
+```
+
+
+### fixed bivariate kernel home range
+
+```{r}
+# :'( :'( :'(  :'( :'( :'(  :'( :'( :'(  :'( :'( :'( 
+# have to convert from sf to sp object to use mcp
+sp_panthers_temp <- sf::as_Spatial(panthers)
+# fixed bivariate kernel home range
+fixed_bivariate_kernel <- adehabitatHR::kernelUD(
+    xy = sp_panthers_temp[,"CatID"]
+    , grid = 500
+    , h = "href"
+    , kern = "bivnorm"
+    , same4all = T
+  ) |> 
+  estUDm2spixdf() |> 
+  sf::st_as_sf()
+# transform wide to long (id by cat)
+fixed_bivariate_kernel_sf <- 1:length(fixed_bivariate_kernel |> sf::st_drop_geometry()) |> 
+  purrr::map(function(x){
+    ct <- names(fixed_bivariate_kernel)[x]
+    return(
+      fixed_bivariate_kernel[x] |> 
+        dplyr::rename(density=1) |> 
+        dplyr::mutate(CatID = substr(ct, 2, nchar(ct)))
+    )
+  }) |> 
+  dplyr::bind_rows() |> 
+  dplyr::group_by(CatID) |>
+  dplyr::mutate(
+    density_scale = scale(density)
+  ) |> 
+  dplyr::ungroup()
+
+# function
+plt_fixed_bivariate_kernel_fn <- function(catid) {
+  # one cat raster
+  rast_temp <- dplyr::bind_cols(
+      fixed_bivariate_kernel_sf |> dplyr::filter(CatID==catid) |> sf::st_coordinates(geometry)
+      , fixed_bivariate_kernel_sf |> 
+        sf::st_drop_geometry() |> 
+        dplyr::filter(CatID==catid) |> 
+        dplyr::select(density_scale)
+    ) |> 
+    terra::rast(
+      type = "xyz"
+      , crs = (fixed_bivariate_kernel_sf |> terra::vect() |> terra::crs()) 
+    ) |>
+    terra::crop(
+      panthers |> 
+        dplyr::filter(CatID == catid) |> 
+        sf::st_bbox() |> 
+        sf::st_as_sfc() |> 
+        sf::st_buffer(6000) |> 
+        terra::vect()
+    ) |> 
+    as.data.frame(xy=T) |> 
+    rename(density=3)
+  # qtile
+  qtile_temp <- quantile(rast_temp$density, 0.95) |> as.numeric()
+  return(
+  ggplot() + 
+    geom_sf(
+      data = panthers |> dplyr::filter(CatID == catid)
+      , color = "black"
+      , fill = "gray85"
+      , shape = 21
+    ) +
+    geom_raster(data = rast_temp, mapping=aes(x=x,y=y,fill=density)) + 
+    geom_contour(data = rast_temp, mapping=aes(x=x,y=y,z=density), breaks = qtile_temp, color = "white") + 
+    scale_fill_viridis_c(
+      option="inferno"
+      , direction=-1
+      , alpha = 0.8
+      , limits = c(0, max(rast_temp$density))
+      , oob = scales::censor
+      , na.value = "transparent"
+    ) +
+    scale_x_continuous(expand = c(0, 0)) +
+    scale_y_continuous(expand = c(0, 0)) +
+    labs(
+      subtitle = paste0("fixed bivariate kernel home range for panther #", catid)
+      , x = "Longitude"
+      , y = "Latitude"
+      , color = "density"
+    ) +
+    theme_light() +
+    theme(
+      legend.position = c(0.12, 0.2)
+      , legend.key.size = unit(0.25, 'cm')
+      , legend.text = element_text(size = 6)
+      , legend.title = element_text(size = 6)
+      , axis.title = element_text(size = 7)
+      , axis.text.y = element_text(size=6)
+      , axis.text.x = element_text(size=6)
+      , panel.border = element_blank()
+      , plot.subtitle = element_text(size=8)
+      , panel.grid = element_blank()
+    )
+  )
+}
+
+plt_fixed_bivariate_kernel_fn("131")
+```
+
+
+```{r}
+kernel.href.epa <- kernelUD(panthers[,"CatID"], h="href", kern="epa")
+#least-squares cross validation for h, this will yield a warning of convergence
+kernel.lscv.bivar <- kernelUD(panthers[,"CatID"], h="LSCV", kern="bivnorm")
+#manually adjust h
+kernel.bivar.h1000 <- kernelUD(panthers[,"CatID"], h=1000, kern="bivnorm")
+#plot first cat
+plot(kernel.bivar.h1000[[1]])
+plot(kernel.href.bivar[[1]])
+#contour maps of activity for fourth cat
+plot(kernel.href.bivar[[4]])
+contour.data <- as.image.SpatialGridDataFrame(kernel.href.bivar[[4]])
+contour(contour.data, nlevels=5, add=TRUE)
+
+# local convex hull home range
+#subset
+panther147 <- panthers[panthers$CatID==147, ]
+panther100 <- panthers[panthers$CatID==100, ]
+
+#initialize
+k.int <- round(nrow(coordinates(panther147))^0.5,0)
+a.int <- round(max(dist(coordinates(panther147))),0)
+
+k.search <- seq(k.int, 10*k.int, by=5)
+a.search <- seq(a.int, 2*a.int, by=3000)
+
+#Parameter search for locoh-a
+LoCoH.a.range <- LoCoH.a.area(SpatialPoints(coordinates(panther147)), unout="km2", arange=a.search)
 
 ```
 
