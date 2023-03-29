@@ -48,6 +48,7 @@ library(terra)
 library(adehabitatLT)     #for trajectory information; version 0.3.23 used
 library(adehabitatHR)     #Home range estimation; version 0.4.15 used
 library(adehabitatHS)     #for selection ratios; version 0.3.13 used
+library(maptools) ## one of these adehabitat needs this
 # do i have to???
 # library(raster)           #for raster covariate data; version 2.6-7 used
 # library(rgdal)            #for reading different types of GIS files; version 1.3-4 used
@@ -380,14 +381,58 @@ For all panthers, create a four-panel plot showing the home ranges as estimated 
 
 ### minimum convex polygon
 
-```{r}
+```{r, fig.show='hide'}
+#plot
+plt_minimum_convex_polygon <- ggplot() +
+  geom_raster(
+    data = land_sub_df
+    , mapping = aes(x=x,y=y,fill=landcover_class)
+  ) +
+  geom_sf(data = panthers, mapping = aes(color = CatID), alpha = 0.5, show.legend = F) +
+  # plot home range
+  geom_sf(
+    data = min_convex_polys |> dplyr::filter(pct_grp == "95%")
+    , mapping = aes(color = id)
+    , fill = "gray"
+    , alpha = 0.1
+    , lwd = 1
+    , show.legend = F
+  ) +
+  scale_color_viridis_d(option = "magma") +
+  scale_fill_viridis_d(option = "turbo", alpha = 0.8) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  labs(
+    subtitle = paste0("minimum convex polygon home range")
+    , x = "Longitude"
+    , y = "Latitude"
+    , color = "Cat ID"
+    , fill = "Landcover Class"
+  ) +
+  theme_light() +
+  theme(
+    plot.margin = margin(t=4,1,1,1, "lines") 
+    , legend.direction = "horizontal"
+    , legend.position = c(0.5, 1.15)
+    , legend.key.size = unit(0.25, 'cm')
+    , legend.text = element_text(size = 6)
+    , legend.title = element_text(size = 6)
+    , axis.title = element_text(size = 7)
+    , axis.text.y = element_text(size=6)
+    , axis.text.x = element_text(size=6)
+    , panel.border = element_blank()
+    , plot.subtitle = element_text(size=9)
+    , panel.grid = element_blank()
+  ) 
+plt_minimum_convex_polygon
 
 ```
 
-
 ### fixed bivariate kernel home range
 
-```{r}
+this code was updated to use `sp` and `raster` only when a function required for input...otherwise using `sf` and `terra`
+
+```{r, fig.show='hide'}
 # :'( :'( :'(  :'( :'( :'(  :'( :'( :'(  :'( :'( :'( 
 # have to convert from sf to sp object to use mcp
 sp_panthers_temp <- sf::as_Spatial(panthers)
@@ -453,7 +498,7 @@ plt_fixed_bivariate_kernel_fn <- function(catid) {
       , shape = 21
     ) +
     geom_raster(data = rast_temp, mapping=aes(x=x,y=y,fill=density)) + 
-    geom_contour(data = rast_temp, mapping=aes(x=x,y=y,z=density), breaks = qtile_temp, color = "white") + 
+    geom_contour(data = rast_temp, mapping=aes(x=x,y=y,z=density), breaks = qtile_temp, color = "black") + 
     scale_fill_viridis_c(
       option="inferno"
       , direction=-1
@@ -486,40 +531,254 @@ plt_fixed_bivariate_kernel_fn <- function(catid) {
   )
 }
 
-plt_fixed_bivariate_kernel_fn("131")
+plt_fixed_bivariate_kernel_fn("100")
 ```
 
+#### Using old methods
+
+```{r, fig.show='hide'}
+# :'( :'( :'(  :'( :'( :'(  :'( :'( :'(  :'( :'( :'( 
+sp_panthers_temp <- sf::as_Spatial(panthers)
+fixed_bivariate_kernel_old <- adehabitatHR::kernelUD(
+    xy = sp_panthers_temp[,"CatID"]
+    , h = "href"
+    , kern = "bivnorm"
+  )
+kernel.95 <- adehabitatHR::getverticeshr(fixed_bivariate_kernel_old, percent=95) |> 
+  sf::st_as_sf() |> 
+  dplyr::rename(CatID = id)
+# plot
+#plot
+plt_fixed_bivariate_kernel <- ggplot() +
+  geom_raster(
+    data = land_sub_df
+    , mapping = aes(x=x,y=y,fill=landcover_class)
+    , show.legend = F
+  ) +
+  geom_sf(data = panthers, mapping = aes(color = CatID), alpha = 0.5, show.legend = F) +
+  # plot home range
+  geom_sf(
+    data = kernel.95
+    , mapping = aes(color = CatID)
+    , fill = "gray"
+    , alpha = 0.1
+    , lwd = 1
+  ) +
+  scale_color_viridis_d(option = "magma") +
+  scale_fill_viridis_d(option = "turbo", alpha = 0.8) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  labs(
+    subtitle = paste0("fixed bivariate kernel home range")
+    , x = "Longitude"
+    , y = "Latitude"
+    , color = "Cat ID"
+    , fill = "Landcover Class"
+  ) +
+  theme_light() +
+  theme(
+    plot.margin = margin(t=4,1,1,1, "lines") 
+    , legend.direction = "horizontal"
+    , legend.position = c(0.5, 1.15)
+    , legend.key.size = unit(0.25, 'cm')
+    , legend.text = element_text(size = 6)
+    , legend.title = element_text(size = 6)
+    , axis.title = element_text(size = 7)
+    , axis.text.y = element_text(size=6)
+    , axis.text.x = element_text(size=6)
+    , panel.border = element_blank()
+    , plot.subtitle = element_text(size=9)
+    , panel.grid = element_blank()
+  ) 
+plt_fixed_bivariate_kernel
+```
+
+### local convex hull home range
+
+Hint, for the local convex hull home range, I used the "LoCoH.k" function with a k of 14.
+
+```{r, fig.show='hide'}
+# :'( :'( :'(  :'( :'( :'(  :'( :'( :'(  :'( :'( :'( 
+# local convex hull home range
+catid = "147"
+#subset
+panthers_temp <- panthers|> dplyr::filter(CatID == catid)
+#initialize
+k.int <- round(nrow(sf::st_coordinates(panthers_temp))^0.5,0)
+k.search <- seq(k.int, 10*k.int, by=5)
+# :'( :'( :'(  :'( :'( :'(  :'( :'( :'(  :'( :'( :'( 
+this_works_really_well = FALSE
+if(this_works_really_well){
+  # :'( :'( :'(  :'( :'( :'(  :'( :'( :'(  :'( :'( :'( 
+  #Parameter search for locoh-k
+  LoCoH.k.range <- adehabitatHR::LoCoH.k.area(
+    sf::as_Spatial(panthers_temp$geometry)
+    , unout="km2"
+    , krange=k.search
+  )
+  # local convex hull
+  local_convex_hull <- adehabitatHR::LoCoH.k(
+    sf::as_Spatial(panthers_temp$geometry)
+    , k=k.search[14]
+    # , unin = "m"
+    # , unout = "km"
+    , duplicates = "remove"
+  )
+}else{
+  lch_panther_all <- sf::st_read("../data/lchp_shapefile/lchp_with_holes_all_cats.shp")
+  ggplot() + geom_sf(data = lch_panther_all, aes(fill=as.factor(id)))
+}
+#plot
+plt_local_convex_hull <- ggplot() +
+  geom_raster(
+    data = land_sub_df
+    , mapping = aes(x=x,y=y,fill=landcover_class)
+  ) +
+  geom_sf(data = panthers, mapping = aes(color = CatID), alpha = 0.5, show.legend = F) +
+  # plot home range
+  geom_sf(
+    data = lch_panther_all
+    , mapping = aes(color = as.factor(id))
+    , fill = "gray"
+    , alpha = 0.1
+    , lwd = 1
+  ) +
+  scale_color_viridis_d(option = "magma") +
+  scale_fill_viridis_d(option = "turbo", alpha = 0.8) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  labs(
+    subtitle = paste0("local convex hull home range")
+    , x = "Longitude"
+    , y = "Latitude"
+    , color = "Cat ID"
+    , fill = "Landcover Class"
+  ) +
+  theme_light() +
+  theme(
+    legend.position = "none"
+    , legend.key.size = unit(0.25, 'cm')
+    , legend.text = element_text(size = 6)
+    , legend.title = element_text(size = 6)
+    , axis.title = element_text(size = 7)
+    , axis.text.y = element_text(size=6)
+    , axis.text.x = element_text(size=6)
+    , panel.border = element_blank()
+    , plot.subtitle = element_text(size=9)
+    , panel.grid = element_blank()
+  ) 
+plt_local_convex_hull
+```
+
+### brownian bridge home range
+
+```{r, fig.show='hide'}
+#Re-format Juldate information:
+#function for taking characters of a string from rightmost value
+substrRight <- function(x, n){
+  substr(x, nchar(x)-n+1, nchar(x))
+}
+
+#re-format
+panthers <- panthers |> 
+  dplyr::mutate(
+    Date = substrRight(as.character(Juldate), 3) |> 
+      as.numeric() |> 
+      as.Date(origin = as.Date("2006-01-01")) |> 
+      as.POSIXct(format="%Y-%m-%d", tz = "EST")
+  )
+#make trajectory object
+panther.ltraj <- adehabitatLT::as.ltraj(
+  xy=sf::st_coordinates(panthers$geometry)
+  , date=panthers$Date
+  , id=panthers$CatID
+  , typeII=T
+)
+plot(panther.ltraj)
+#telemetry error (average)
+sigma2 <- 450
+#estimate sigma1
+sigma1 <- adehabitatHR::liker(panther.ltraj, sig2 = sigma2, rangesig1 = c(2, 100))
+#all panthers
+sig1 <- c(
+  sigma1[[1]]$sig1
+  , sigma1[[2]]$sig1
+  , sigma1[[3]]$sig1
+  , sigma1[[4]]$sig1
+  , sigma1[[5]]$sig1
+  , sigma1[[6]]$sig1
+)
+bb.panther <- adehabitatHR::kernelbb(
+  panther.ltraj
+  , sig1 = sig1
+  , sig2 = sigma2
+  , grid = 200
+)
+# contour
+bb.95 <- adehabitatHR::getverticeshr(bb.panther, percent=95) |> 
+  sf::st_as_sf() |> 
+  sf::st_set_crs(reproject_crs) |>
+  dplyr::rename(CatID = id)
+# plot
+#plot
+plt_brownian_bridge <- ggplot() +
+  geom_raster(
+    data = land_sub_df
+    , mapping = aes(x=x,y=y,fill=landcover_class)
+  ) +
+  geom_sf(data = panthers, mapping = aes(color = CatID), alpha = 0.5, show.legend = F) +
+  # plot home range
+  geom_sf(
+    data = bb.95
+    , mapping = aes(color = CatID)
+    , fill = "gray"
+    , alpha = 0.1
+    , lwd = 1
+  ) +
+  scale_color_viridis_d(option = "magma") +
+  scale_fill_viridis_d(option = "turbo", alpha = 0.8) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  labs(
+    subtitle = paste0("brownian bridge home range")
+    , x = "Longitude"
+    , y = "Latitude"
+    , color = "Cat ID"
+    , fill = "Landcover Class"
+  ) +
+  theme_light() +
+  theme(
+    legend.position = "none"
+    , legend.key.size = unit(0.25, 'cm')
+    , legend.text = element_text(size = 6)
+    , legend.title = element_text(size = 6)
+    , axis.title = element_text(size = 7)
+    , axis.text.y = element_text(size=6)
+    , axis.text.x = element_text(size=6)
+    , panel.border = element_blank()
+    , plot.subtitle = element_text(size=9)
+    , panel.grid = element_blank()
+  ) 
+plt_brownian_bridge
+```
+
+### plot grid
+
+minimum convex polygon, fixed bivariate kernel home range, local convex hull home range, and Brownian bridge
 
 ```{r}
-kernel.href.epa <- kernelUD(panthers[,"CatID"], h="href", kern="epa")
-#least-squares cross validation for h, this will yield a warning of convergence
-kernel.lscv.bivar <- kernelUD(panthers[,"CatID"], h="LSCV", kern="bivnorm")
-#manually adjust h
-kernel.bivar.h1000 <- kernelUD(panthers[,"CatID"], h=1000, kern="bivnorm")
-#plot first cat
-plot(kernel.bivar.h1000[[1]])
-plot(kernel.href.bivar[[1]])
-#contour maps of activity for fourth cat
-plot(kernel.href.bivar[[4]])
-contour.data <- as.image.SpatialGridDataFrame(kernel.href.bivar[[4]])
-contour(contour.data, nlevels=5, add=TRUE)
-
-# local convex hull home range
-#subset
-panther147 <- panthers[panthers$CatID==147, ]
-panther100 <- panthers[panthers$CatID==100, ]
-
-#initialize
-k.int <- round(nrow(coordinates(panther147))^0.5,0)
-a.int <- round(max(dist(coordinates(panther147))),0)
-
-k.search <- seq(k.int, 10*k.int, by=5)
-a.search <- seq(a.int, 2*a.int, by=3000)
-
-#Parameter search for locoh-a
-LoCoH.a.range <- LoCoH.a.area(SpatialPoints(coordinates(panther147)), unout="km2", arange=a.search)
-
+cowplot::plot_grid(
+  plotlist = list(
+    plt_minimum_convex_polygon
+    , plt_fixed_bivariate_kernel
+    , plt_local_convex_hull
+    , plt_brownian_bridge
+  )
+  , ncol = 2
+  , rel_heights = c(1,0.8)
+)
 ```
+
 
 ## Question 6
 
