@@ -388,7 +388,7 @@ plt_minimum_convex_polygon <- ggplot() +
     data = land_sub_df
     , mapping = aes(x=x,y=y,fill=landcover_class)
   ) +
-  geom_sf(data = panthers, mapping = aes(color = CatID), alpha = 0.5, show.legend = F) +
+  geom_sf(data = panthers, mapping = aes(color = CatID), alpha = 0.5, size = 1, show.legend = F) +
   # plot home range
   geom_sf(
     data = min_convex_polys |> dplyr::filter(pct_grp == "95%")
@@ -555,7 +555,7 @@ plt_fixed_bivariate_kernel <- ggplot() +
     , mapping = aes(x=x,y=y,fill=landcover_class)
     , show.legend = F
   ) +
-  geom_sf(data = panthers, mapping = aes(color = CatID), alpha = 0.5, show.legend = F) +
+  geom_sf(data = panthers, mapping = aes(color = CatID), alpha = 0.5, size = 1, show.legend = F) +
   # plot home range
   geom_sf(
     data = kernel.95
@@ -597,7 +597,7 @@ plt_fixed_bivariate_kernel
 
 Hint, for the local convex hull home range, I used the "LoCoH.k" function with a k of 14.
 
-```{r, fig.show='hide'}
+```{r, fig.show='hide', results='hide'}
 # :'( :'( :'(  :'( :'( :'(  :'( :'( :'(  :'( :'( :'( 
 # local convex hull home range
 catid = "147"
@@ -625,8 +625,8 @@ if(this_works_really_well){
     , duplicates = "remove"
   )
 }else{
-  lch_panther_all <- sf::st_read("../data/lchp_shapefile/lchp_with_holes_all_cats.shp")
-  ggplot() + geom_sf(data = lch_panther_all, aes(fill=as.factor(id)))
+  local_convex_hull <- sf::st_read("../data/lchp_shapefile/lchp_with_holes_all_cats.shp")
+  ggplot() + geom_sf(data = local_convex_hull, aes(fill=as.factor(id)))
 }
 #plot
 plt_local_convex_hull <- ggplot() +
@@ -634,10 +634,10 @@ plt_local_convex_hull <- ggplot() +
     data = land_sub_df
     , mapping = aes(x=x,y=y,fill=landcover_class)
   ) +
-  geom_sf(data = panthers, mapping = aes(color = CatID), alpha = 0.5, show.legend = F) +
+  geom_sf(data = panthers, mapping = aes(color = CatID), alpha = 0.5, size = 1, show.legend = F) +
   # plot home range
   geom_sf(
-    data = lch_panther_all
+    data = local_convex_hull
     , mapping = aes(color = as.factor(id))
     , fill = "gray"
     , alpha = 0.1
@@ -688,17 +688,17 @@ panthers <- panthers |>
       as.POSIXct(format="%Y-%m-%d", tz = "EST")
   )
 #make trajectory object
-panther.ltraj <- adehabitatLT::as.ltraj(
+panther.ltraj_temp <- adehabitatLT::as.ltraj(
   xy=sf::st_coordinates(panthers$geometry)
   , date=panthers$Date
   , id=panthers$CatID
   , typeII=T
 )
-plot(panther.ltraj)
+plot(panther.ltraj_temp)
 #telemetry error (average)
 sigma2 <- 450
 #estimate sigma1
-sigma1 <- adehabitatHR::liker(panther.ltraj, sig2 = sigma2, rangesig1 = c(2, 100))
+sigma1 <- adehabitatHR::liker(panther.ltraj_temp, sig2 = sigma2, rangesig1 = c(2, 100))
 #all panthers
 sig1 <- c(
   sigma1[[1]]$sig1
@@ -708,14 +708,14 @@ sig1 <- c(
   , sigma1[[5]]$sig1
   , sigma1[[6]]$sig1
 )
-bb.panther <- adehabitatHR::kernelbb(
-  panther.ltraj
+bb.panther_temp <- adehabitatHR::kernelbb(
+  panther.ltraj_temp
   , sig1 = sig1
   , sig2 = sigma2
   , grid = 200
 )
 # contour
-bb.95 <- adehabitatHR::getverticeshr(bb.panther, percent=95) |> 
+bb.95 <- adehabitatHR::getverticeshr(bb.panther_temp, percent=95) |> 
   sf::st_as_sf() |> 
   sf::st_set_crs(reproject_crs) |>
   dplyr::rename(CatID = id)
@@ -726,7 +726,7 @@ plt_brownian_bridge <- ggplot() +
     data = land_sub_df
     , mapping = aes(x=x,y=y,fill=landcover_class)
   ) +
-  geom_sf(data = panthers, mapping = aes(color = CatID), alpha = 0.5, show.legend = F) +
+  geom_sf(data = panthers, mapping = aes(color = CatID), alpha = 0.5, size = 1, show.legend = F) +
   # plot home range
   geom_sf(
     data = bb.95
@@ -779,14 +779,20 @@ cowplot::plot_grid(
 )
 ```
 
+```{r, warning=FALSE, message=FALSE, echo=FALSE, include=FALSE}
+remove(list = ls()[grep("_temp",ls())])
+remove(list = ls()[!stringr::str_detect(ls(), paste(c("panther","land"),collapse = '|'))])
+gc()
+```
+
 
 ## Question 6
 
 If you were tasked with presenting the home range of these animals to the Florida Fish and Wildlife Commission, which would you select and why? (2 pts)
 
-```{r}
-
-```
+<span style="color: teal;">
+If I was tasked with presenting the home range of Florida panthers (*Puma concolor coryi*) based on radiotelemetry data to the Florida Fish and Wildlife Commission, I would include the full set of location points in any visualization regardless of the method selected for determining home range. I think that showing the full range of animal movement data (e.g. 100% minimum convex polygon [bounding box]) is important -- even though this might include areas unsuitable for the species -- because there was likely a reason that the animal was in a location even if it was an outlying location. To present the home range, I would utilize the local convex hull method because it uses successive locations and captures relationships between points in time rather than assuming point locations are independent as in the minimum convex polygon and kernel density estimation approaches. In addition, I believe that the local convex hull method is easier to explain and much more intuitive than brownian bridge movement model which could result in increased understanding and endorsement of the analysis by managers and policy-makers.
+</span>
 
 # Florida panther resource selection 
 
@@ -794,29 +800,340 @@ If you were tasked with presenting the home range of these animals to the Florid
 
 Within the Fletcher text, there is a distinction made between Design II and Design III resource selection sampling. What is the difference? (4 pts)
 
+<span style="color: teal;">
+While both methodologies aim to classify resource use and availability, the distinction made between Design II and Design III resource selection sampling in [Fletcher and Fortin (2018)](https://link.springer.com/book/10.1007/978-3-030-01989-1) is that Design II considers resource use by individuals compared to availability at the population level while Design III quantifies resource use and availability at the individual level.
+</span>
+
 ## Question 8
 
 Lines 343 reformats the "use" dataframe. What specially does it do? (2 pts)
 
-`useCatID <- dcast(use, CatID~landcover, length, value.var="CatID")`
+```{r, eval=FALSE}
+#use data
+use <- raster::extract(layers, panthers)
+#reformat
+useCatID <- reshape2::dcast(use, CatID~landcover, length, value.var="CatID")
+```
+
+<span style="color: teal;">
+the `reshape2::dcast` function reshapes the data from long to wide with the resulting data unique by `CatID` with individual columns for each `landcover` level.
+</span>
 
 ## Question 9
 
 Calculate the Design II and Design III resource selection models. (12 pts)
 
+### data preparation
+
+Count locations by individual panther and landcover type.
+
 ```{r}
+#use data
+use_by_catid_long <- terra::extract(
+    x = land_sub
+    , y = panthers |> 
+      terra::vect()
+    , ID = F
+  ) |> 
+  dplyr::rename(landcover_type=1) |> 
+  dplyr::mutate(CatID = panthers$CatID) |> 
+  dplyr::count(CatID, landcover_type) |> 
+  dplyr::left_join(
+    landcover_reclass |> 
+      dplyr::count(changeto,description2) |> 
+      dplyr::select(-n)
+    , by = c("landcover_type"="changeto")
+  ) |> 
+  dplyr::mutate(
+    landcover_class = as.factor(description2)
+    , landcover_name = make.names(description2)
+  )
+# pivot long to wide
+use_by_catid_wide <- use_by_catid_long |> 
+  dplyr::arrange(landcover_name, CatID) |> 
+  tidyr::pivot_wider(
+    id_cols = "CatID"
+    , names_from = "landcover_name"
+    , values_from = "n"
+    , values_fill = 0
+  ) 
+```
+
+Sample landcover types in raster data for resource availability at 1) the population level (Design II) and 2) the individual panther level (Design III)
+
+```{r}
+####################################
+# design II availability (population)
+####################################
+#get availability points
+set.seed(8)
+avail_cov_dsn2_long <- terra::spatSample(
+    x = land_sub
+    , size = 1000
+    , method = "random"
+    , na.rm = T
+    , as.df = TRUE
+  ) |> 
+  dplyr::rename(landcover_type=1) |> 
+  dplyr::count(landcover_type) |> 
+  dplyr::left_join(
+    landcover_reclass |> 
+      dplyr::count(changeto,description2) |> 
+      dplyr::select(-n)
+    , by = c("landcover_type"="changeto")
+  ) |> 
+  dplyr::mutate(
+    landcover_class = as.factor(description2)
+    , landcover_name = make.names(description2)
+  )
+# pivot long to wide
+avail_cov_dsn2_wide <- avail_cov_dsn2_long |> 
+  dplyr::select(landcover_name,n) |> 
+  dplyr::arrange(landcover_name) |> 
+  tidyr::pivot_wider(
+    names_from = "landcover_name"
+    , values_from = "n"
+    , values_fill = 0
+  ) 
+# filter out landcovers not observed in use data
+# ????? is this the best method???? or should we ensure that cover type is in the use data with 0's
+avail_cov_dsn2_wide <- avail_cov_dsn2_wide |> 
+  dplyr::select(names(use_by_catid_wide |> dplyr::select(-CatID)))
+
+####################################
+# design III availability (individual)
+####################################
+# function to return available cover by catid
+avail_cov_fn <- function(catid,nsamp) {
+  set.seed(8)
+  # get minimum convex polygon
+  # dta_temp <- sf::as_Spatial(panthers |> dplyr::filter(CatID==catid))
+  dta_temp <- panthers |> dplyr::filter(CatID==catid) |> dplyr::select(geometry)
+  mcp <- adehabitatHR::mcp(
+      dta_temp |> sf::as_Spatial()
+      , percent = 99
+    ) |> 
+    sf::st_as_sf()
+  # sample points within minimum convex polygon
+  pts_sample <- sf::st_sample(x = mcp, size = nsamp, type = "random")
+  # get landcover values at points from raster
+  avail_cov <- terra::extract(
+      x = land_sub
+      , y = pts_sample |> terra::vect()
+      , ID = F
+    ) |> 
+    dplyr::rename(landcover_type=1) |> 
+    dplyr::mutate(CatID = catid) |> 
+    dplyr::count(CatID, landcover_type)
+  return(avail_cov)
+}
+# map over all cats
+avail_cov_dsn3_long <- unique(panthers$CatID) |> 
+  purrr::map(avail_cov_fn, nsamp=400) |> 
+  dplyr::bind_rows() |> 
+  dplyr::left_join(
+    landcover_reclass |> 
+      dplyr::count(changeto,description2) |> 
+      dplyr::select(-n)
+    , by = c("landcover_type"="changeto")
+  ) |> 
+  dplyr::mutate(
+    landcover_class = as.factor(description2)
+    , landcover_name = make.names(description2)
+  )
+# pivot long to wide
+avail_cov_dsn3_wide <- avail_cov_dsn3_long |> 
+  dplyr::arrange(landcover_name, CatID) |> 
+  tidyr::pivot_wider(
+    id_cols = "CatID"
+    , names_from = "landcover_name"
+    , values_from = "n"
+    , values_fill = 0
+  ) 
+# filter out landcovers not observed in use data
+# ????? is this the best method???? or should we ensure that cover type is in the use data with 0's
+avail_cov_dsn3_wide <- avail_cov_dsn3_wide |> 
+  dplyr::select(names(use_by_catid_wide))
+```
+
+selection ratios
+
+```{r}
+############################
+# Design II:
+############################
+sel_ratio_dsn2 <- adehabitatHS::widesII(
+  u = use_by_catid_wide |> dplyr::select(-CatID)
+  , a = avail_cov_dsn2_wide |> as.matrix() |> as.vector()
+  , avknown = FALSE
+  , alpha = 0.05
+)
+#create data frame of results
+sel_ratio_dsn2_df <- data.frame(
+    landcover_name = row.names(as.data.frame(sel_ratio_dsn2$wi))
+    , avail.prop = sel_ratio_dsn2$avail.prop
+    , used.prop = sel_ratio_dsn2$used.prop
+    , wi = sel_ratio_dsn2$wi # Manly selectivity measure
+    , ICwilower = sel_ratio_dsn2$ICwilower
+    , ICwiupper = sel_ratio_dsn2$ICwiupper
+    , se.wi = sel_ratio_dsn2$se.wi
+  ) |> 
+  dplyr::mutate(
+    is_signif = dplyr::case_when(
+      ICwilower > 0 & ICwiupper > 0 ~ 1
+      , ICwilower < 0 & ICwiupper < 0 ~ 1
+      , TRUE ~ 0
+    )
+    , signif_type = dplyr::case_when(
+      ICwilower > 0 & ICwiupper > 0 ~ "Positive"
+      , ICwilower < 0 & ICwiupper < 0 ~ "Negative"
+      , TRUE ~ "Not Significant"
+    )
+  )
+############################
+# Design III:
+############################
+sel_ratio_dsn3 <- adehabitatHS::widesIII(
+  u = use_by_catid_wide |> dplyr::arrange(CatID) |> dplyr::select(-CatID)
+  , a = avail_cov_dsn3_wide |> dplyr::arrange(CatID) |> dplyr::select(-CatID)
+  , avknown = FALSE
+  , alpha = 0.05
+)
+
+#create data frame of results
+sel_ratio_dsn3_df <- data.frame(
+  landcover_name = row.names(as.data.frame(sel_ratio_dsn3$wi))
+  , wi = sel_ratio_dsn3$wi # Manly selectivity measure
+  , ICwilower = sel_ratio_dsn3$ICwilower
+  , ICwiupper = sel_ratio_dsn3$ICwiupper
+  , se.wi = sel_ratio_dsn3$se.wi
+) |> 
+  dplyr::mutate(
+    is_signif = dplyr::case_when(
+      ICwilower > 0 & ICwiupper > 0 ~ 1
+      , ICwilower < 0 & ICwiupper < 0 ~ 1
+      , TRUE ~ 0
+    )
+    , signif_type = dplyr::case_when(
+      ICwilower > 0 & ICwiupper > 0 ~ "Positive"
+      , ICwilower < 0 & ICwiupper < 0 ~ "Negative"
+      , TRUE ~ "Not Significant"
+    )
+  )
 
 ```
+
 
 ### part a)
 For Design II, are all panthers using the habitats identically? Hint, explore the output of the "widesII".
 
+```{r, results='asis'}
+sel_ratio_dsn2$Khi2L1 |> 
+  kableExtra::kable(
+      format = "html" 
+      , caption = "Test of identical use of habitat by all animals<br>Classical Khi-2 performed on the used matrix:"
+      , escape = FALSE
+      , digits = 3
+      , col.names = ""
+    ) |> 
+    kable_styling(font_size = 14)
+```
+
+<span style="color: teal;">
+Based on the results of the classical Khi-2 test of identical use of habitat by all animals presented above, we reject the null hypothesis of identical habitat use by all panthers.
+</span>
+
 ### part b)
+
 For Design II, which habitats are showing a positive selection? Do any habitats show a significant positive association?
+
+```{r}
+plt_sel_dsn2 <- ggplot(data = sel_ratio_dsn2_df, mapping = aes(y = landcover_name)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "firebrick") +
+  geom_linerange(
+    mapping = aes(xmin = ICwilower, xmax = ICwiupper, color = as.factor(is_signif))
+  ) +
+  geom_point(
+    mapping = aes(x = wi, color = as.factor(is_signif))
+  ) +
+  scale_color_manual(values = c("gray70", "navy") ) +
+  labs(
+    x = "Manly selectivity measure\n(selection ratio: used/available)"
+    , y = "land cover"
+    , subtitle = "blue indicates significant habitat selection/avoidance"
+    , title = "Design II habitat selection by panthers"
+  ) +
+  theme_light() + 
+  theme(
+    legend.position = "none"
+    , plot.subtitle = element_text(color = "navy", size = 7)
+    , plot.title = element_text(size = 8)
+    , axis.title.y = element_text(size = 7)
+    , axis.text.x =  element_text(size = 7)
+    , axis.title.x =  element_text(size = 7)
+  )
+plt_sel_dsn2
+```
+
+<span style="color: teal;">
+Based on the plot above using Design II resource use and availability classification, there are **`r sel_ratio_dsn2_df |> dplyr::filter(signif_type=="Positive") |> nrow()`** habitats that show positive selection by panthers based on the Manly selectivity measure. These include: **`r sel_ratio_dsn2_df |> dplyr::filter(signif_type=="Positive") |> dplyr::pull(landcover_name) |> paste(collapse = ", ")`**. 
+</span>
 
 ### part c)
 For Design III, which habitats are showing a positive selection? Do you see negative associations? 
 
+```{r}
+plt_sel_dsn3 <- ggplot(data = sel_ratio_dsn3_df, mapping = aes(y = landcover_name)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "firebrick") +
+  geom_linerange(
+    mapping = aes(xmin = ICwilower, xmax = ICwiupper, color = as.factor(is_signif))
+  ) +
+  geom_point(
+    mapping = aes(x = wi, color = as.factor(is_signif))
+  ) +
+  scale_color_manual(values = c("gray70", "navy") ) +
+  labs(
+    x = "Manly selectivity measure\n(selection ratio: used/available)"
+    , y = "land cover"
+    , subtitle = "blue indicates significant habitat selection/avoidance"
+    , title = "Design III habitat selection by panthers"
+  ) +
+  theme_light() + 
+  theme(
+    legend.position = "none"
+    , plot.subtitle = element_text(color = "navy", size = 7)
+    , plot.title = element_text(size = 8)
+    , axis.title.y = element_text(size = 7)
+    , axis.text.x =  element_text(size = 7)
+    , axis.title.x =  element_text(size = 7)
+  )
+plt_sel_dsn3
+sel_ratio_dsn3_df |> dplyr::filter(signif_type=="Negative") |> nrow()
+```
+
+<span style="color: teal;">
+Based on the plot above using Design III resource use and availability classification, there are **`r sel_ratio_dsn3_df |> dplyr::filter(signif_type=="Positive") |> nrow()`** habitats that show positive selection by panthers based on the Manly selectivity measure. These include: **`r sel_ratio_dsn3_df |> dplyr::filter(signif_type=="Positive") |> dplyr::pull(landcover_name) |> paste(collapse = ", ")`**. There are **`r sel_ratio_dsn3_df |> dplyr::filter(signif_type=="Negative") |> nrow()`** habitats that show significant negative selection by panthers (i.e. avoidance) based on the Manly selectivity measure.
+</span>
+
+
 ### part d)
 What differences do you see comparing the Design II and Design III global results for habitat selection? 
 
+```{r}
+cowplot::plot_grid(
+  plotlist = list(
+    plt_sel_dsn2 + theme(plot.title = element_text(face = "bold"))
+    , plt_sel_dsn3 + theme(plot.title = element_text(face = "bold"))
+  )
+)
+# combine data
+dta_temp <- dplyr::inner_join(
+    sel_ratio_dsn2_df
+    , sel_ratio_dsn3_df
+    , by = join_by(landcover_name)
+  )
+```
+
+<span style="color: teal;">
+Based on the comparison between Design II and Design III results for habitat selection, there are **`r dta_temp |> dplyr::filter(is_signif.x==0 & is_signif.y==1) |> nrow()`** land cover types that show significant positive selection by panthers in Design III but not in Design II. These types include: **`r dta_temp |> dplyr::filter(is_signif.x==0 & is_signif.y==1) |> dplyr::pull(landcover_name) |> paste(collapse = ", ")`**. 
+</span>
