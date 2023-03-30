@@ -1108,7 +1108,6 @@ plt_sel_dsn3 <- ggplot(data = sel_ratio_dsn3_df, mapping = aes(y = landcover_nam
     , axis.title.x =  element_text(size = 7)
   )
 plt_sel_dsn3
-sel_ratio_dsn3_df |> dplyr::filter(signif_type=="Negative") |> nrow()
 ```
 
 <span style="color: teal;">
